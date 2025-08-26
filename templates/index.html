@@ -1,0 +1,187 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Movie Recommender</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <header class="site-header">
+    <h1>🎬 Movie Recommender</h1>
+    <p class="tagline">Personalized suggestions powered by collaborative & content-based filtering.</p>
+  </header>
+
+  <main class="grid">
+    <!-- SEARCH BY TITLE -->
+    <section class="card" style="grid-column: 1 / -1;">
+        <div class="card-header">
+          <h2>Search by Title → Similar Movies</h2>
+          <p class="muted">Type a movie name (try “Toy Story”, “Matrix”, “Jaws”). Pick a match to see similar titles.</p>
+        </div>
+      
+        <div class="input-row">
+          <label class="input-group" style="flex:2">
+            <span class="input-label">Movie Title</span>
+            <input id="title" type="text" placeholder="Start typing…">
+          </label>
+          <button id="btn-search" onclick="searchTitle()">Search</button>
+        </div>
+      
+        <ul id="search-results" class="movie-list"></ul>
+
+        <div id="sim-wrap" class="sim-wrap hidden">
+          <div id="sim-title" class="subhead"></div>
+          <h3 class="divider">Similar movies to your search</h3>
+          <ul id="bytitle" class="movie-list"></ul>
+        </div>
+      </section>
+      
+    <!-- USER-BASED RECS -->
+    <section class="card">
+      <div class="card-header">
+        <h2>Recommendations by User</h2>
+        <p class="muted">
+          Enter a MovieLens <strong>User ID</strong> (try 
+          <span class="chip" data-user="1">1</span>, 
+          <span class="chip" data-user="2">2</span>, 
+          <span class="chip" data-user="3">3</span>)
+        </p>
+      </div>
+
+      <div class="input-row">
+        <label class="input-group">
+          <span class="input-label">User ID</span>
+          <input id="user" type="number" placeholder="e.g., 1" />
+        </label>
+        <button id="btn-recs" onclick="getRecs()">Get Recs</button>
+      </div>
+
+      <ul id="list" class="movie-list"></ul>
+      <p id="help-recs" class="hint">These use collaborative filtering (based on similar users).</p>
+    </section>
+
+    <!-- CONTENT SIMILAR BY ID -->
+    <section class="card">
+      <div class="card-header">
+        <h2>Similar Movies</h2>
+        <p class="muted">
+          Enter a MovieLens <strong>Movie ID</strong> (try 
+          <span class="chip" data-movie="1">1 = Toy Story</span>, 
+          <span class="chip" data-movie="2">2 = Jumanji</span>, 
+          <span class="chip" data-movie="3">3 = Grumpier Old Men</span>)
+        </p>
+      </div>
+
+      <div class="input-row">
+        <label class="input-group">
+          <span class="input-label">Movie ID</span>
+          <input id="movie" type="number" placeholder="e.g., 1 (Toy Story)" />
+        </label>
+        <button id="btn-sim" onclick="getSimilar()">Find Similar</button>
+      </div>
+
+      <ul id="similar" class="movie-list"></ul>
+      <p id="help-sim" class="hint">These use content filtering (genre-based similarity).</p>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <span class="muted">Demo dataset: MovieLens (small). Use IDs from <code>ratings.csv</code> / <code>movies.csv</code>.</span>
+  </footer>
+
+  <script>
+    (function () {
+      // utilities
+      function startLoading(btn, listEl){
+        btn.disabled = true;
+        listEl.innerHTML = '<li class="loading">Loading…</li>';
+      }
+      function stopLoading(btn){ btn.disabled = false; }
+    
+      // USER CF
+      async function getRecs(){
+        const btn = document.getElementById('btn-recs');
+        const ul  = document.getElementById('list');
+        const user = (document.getElementById('user').value || '1').trim();
+        startLoading(btn, ul);
+        try{
+          const res = await fetch(`/api/recs?user_id=${encodeURIComponent(user)}&k=10`);
+          const data = await res.json();
+          ul.innerHTML = data.length
+            ? data.map(d => `<li><span class="title">${d.title}</span><span class="score">${d.score.toFixed(3)}</span></li>`).join('')
+            : '<li class="empty">No recommendations for that user ID.</li>';
+        } catch(e){
+          console.error(e);
+          ul.innerHTML = '<li class="error">Something went wrong.</li>';
+        } finally { stopLoading(btn); }
+      }
+    
+      // CONTENT SIMILAR by ID
+      async function getSimilar(){
+        const btn = document.getElementById('btn-sim');
+        const ul  = document.getElementById('similar');
+        const movie = (document.getElementById('movie').value || '1').trim();
+        startLoading(btn, ul);
+        try{
+          const res = await fetch(`/api/similar?movie_id=${encodeURIComponent(movie)}&k=10`);
+          const data = await res.json();
+          ul.innerHTML = data.length
+            ? data.map(d => `<li><span class="title">${d.title}</span><span class="score">${d.score.toFixed(3)}</span></li>`).join('')
+            : '<li class="empty">No similar titles for that movie ID.</li>';
+        } catch(e){
+          console.error(e);
+          ul.innerHTML = '<li class="error">Something went wrong.</li>';
+        } finally { stopLoading(btn); }
+      }
+    
+      // SEARCH by title
+      async function searchTitle(){
+        const btn = document.getElementById('btn-search');
+        const ul  = document.getElementById('search-results');
+        const q   = (document.getElementById('title').value || '').trim();
+        if(!q){ ul.innerHTML = '<li class="empty">Type a title to search.</li>'; return; }
+        btn.disabled = true; ul.innerHTML = '<li class="loading">Searching…</li>';
+        try{
+          const res = await fetch(`/api/search_title?q=${encodeURIComponent(q)}`);
+          const data = await res.json();
+          ul.innerHTML = data.length
+            ? data.map(d => `<li class="clickable" data-mid="${d.movieId}"><span class="title">${d.title}</span></li>`).join('')
+            : '<li class="empty">No matches found.</li>';
+        } finally { btn.disabled = false; }
+      }
+    
+      // click a search result → call /api/similar_by_title
+      document.addEventListener('click', async (e)=>{
+        const item = e.target.closest('li.clickable[data-mid]');
+        if(!item) return;
+    
+        const q = item.querySelector('.title').textContent;
+        const ul = document.getElementById('bytitle');
+        const wrap = document.getElementById('sim-wrap');
+        const titleEl = document.getElementById('sim-title');
+    
+        ul.innerHTML = '<li class="loading">Finding similar…</li>';
+        wrap.classList.remove('hidden');
+        titleEl.textContent = `Similar to: ${q}`;
+    
+        try{
+          const res = await fetch(`/api/similar_by_title?q=${encodeURIComponent(q)}&k=10`);
+          const payload = await res.json();
+          const rows = (payload.results || []).map(
+            d => `<li><span class="title">${d.title}</span><span class="score">${d.score.toFixed(3)}</span></li>`
+          ).join('');
+          ul.innerHTML = rows || '<li class="empty">No similar titles found.</li>';
+        } catch(e){
+          console.error(e);
+          ul.innerHTML = '<li class="error">Something went wrong.</li>';
+        }
+      });
+    
+      // expose for onclick=""
+      window.getRecs = getRecs;
+      window.getSimilar = getSimilar;
+      window.searchTitle = searchTitle;
+    })();
+    </script>
+</body>
+</html>
